@@ -1,0 +1,79 @@
+#	class Fat < Chingu::GameObject
+#		attr_reader :hunger
+#		traits :timer, :velocity, :collision_detection
+#		def setup
+#			@image = Gosu::Image['fat.png']
+#			@hunger = 0
+#			every(3000, :name => :hunger) {@hunger += 1}
+#			(@hungry = Chingu::Text.create('Hungry!', :x => @x - 24, :y => @y - 48, :align => :center)).hide!
+#			@acceleration_y = 0.4
+#			@can_jump = false
+#			@can_check_for_jump = true
+#			self.input = {
+#				:holding_a => lambda {@acceleration_x -= 1},
+#				:holding_d => lambda {@acceleration_x += 1},
+#				:released_w => :jump,
+#				:holding_s => :duck,
+#				:pressed_space => :use_ability}
+#		end
+#		def update
+#			@hungry.x, @hungry.y = @x - 24, @y - 48
+#			@hungry.show! if @hunger > 5
+#			@acceleration_x *= 0.5
+#			@velocity_x *= 0.02
+#			@velocity_x = 0 if @velocity_x.abs < 0.01
+#			@velocity_y = -@velocity_y / 3 if @y >= $window.height * 0.95
+#			@y = $window.height * 0.95 if @y > $window.height * 0.95
+#			(@can_jump = true if ($window.height - @y) < 25) if @can_check_for_jump
+#		end
+#		def jump
+#			return unless @can_jump
+#			@can_jump = false
+#			@velocity_y -= 5
+#			@can_check_for_jump = false
+#			after(1000) {@can_check_for_jump = true}
+#		end
+#		def duck; end
+#		def use_ability; end
+#	end
+#	class Skinny < Chingu::GameObject
+#		attr_reader :health
+#		traits :timer, :velocity, :collision_detection
+#		def setup
+#			@image = Gosu::Image['skinny.png']
+#			@health = 10
+#			(@hurt = Chingu::Text.create('Ouch!', :x => @x - 24, :y => @y - 48, :align => :center)).hide!
+#			@acceleration_y = 0.4
+#			@can_jump = false
+#			@can_check_for_jump = true
+#			self.input = {
+#				:holding_left => lambda {@acceleration_x -= 3},
+#				:holding_right => lambda {@acceleration_x += 3},
+#				:released_up => :jump,
+#				:holding_down => :duck,
+#				:pressed_kbd0 => :grab}
+#		end
+#		def update
+#			@acceleration_x *= 0.5
+#			@velocity_x *= 0.02
+#			@velocity_x = 0 if @velocity_x.abs < 0.01
+#			@velocity_y = -@velocity_y / 3 if @y >= $window.height * 0.95
+#			@y = $window.height * 0.95 if @y > $window.height * 0.95
+#			(@can_jump = true if ($window.height - @y) < 25) if @can_check_for_jump
+#		end
+#		def jump
+#			return unless @can_jump
+#			@can_jump = false
+#			@velocity_y -= 7
+#			@can_check_for_jump = false
+#			after(1000) {@can_check_for_jump = true}
+#		end
+#		def duck; end
+#		def grab; end
+#	end
+
+	class Over < Chingu::GameState
+		def setup
+			@input = {:return => lambda {2.times {pop_game_state}}}
+		end
+	end

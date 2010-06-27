@@ -1,0 +1,361 @@
+require 'chingu'
+module RedditGameJam02
+	class Game < Chingu::Window
+		def setup
+			retrofy # Hell yeah!
+			# transitional_game_state(Chingu::GameStates::FadeTo, :speed => 50)
+			push_game_state(Title)
+			@input = {:escape => :exit}
+		end
+	end
+	class Title < Chingu::GameState
+		def setup
+			@title = Chingu::Text.create('Fat man, Skinny man', :x => 10, :y => 10)
+			@input = {:return => Play}
+		end
+	end
+	class Play < Chingu::GameState
+		attr_accessor :score
+		trait :timer
+		def setup
+			@game_over = false
+			@hunger = Chingu::Text.create('0', :x => 20, :y => 20, :align => :center, :color => Gosu::Color::GREEN)
+			@health = Chingu::Text.create('10', :x => $window.width - 20, :y => 20, :align => :center, :color => Gosu::Color::BLUE)
+			@oh_noes = Chingu::Text.create('Why did you do this to us?', :x => 0, :y => -20, :align => :center, :color => Gosu::Color::RED)
+			@oh_noes.x = ($window.width / 2) - (@oh_noes.width / 2)
+			@fat = Fat.create(:x => 100, :y => 0)
+			@skinny = Skinny.create(:x => 150, :y => 0)
+			@cheese = []
+			@enemies = []
+			@score = 0
+			@blocks = []
+			tmp_y = 0
+			File.open(File.join(File.dirname(__FILE__), 'world1_1.map')).each do |line|
+				tmp_x = 0
+				line.split('').each do |block|
+					(@blocks << Block.create(:x => tmp_x, :y => tmp_y)) if block.to_i == 1
+					tmp_x += 1
+				end
+				tmp_y += 1
+			end
+			@input = {:g => :game_over}
+			every(2000) {@cheese << Food.create(:x => 10 + rand($window.width - 20), :y => -8)}
+			every(2000) {@enemies << Bomb.create(:x => 10 + rand($window.width - 20), :y => -8)}
+		end
+		def update
+			game_over if @skinny.health <= 0 or @fat.hunger >= 10
+			@hunger.text = @fat.hunger
+			@health.text = @skinny.health
+			super
+		end
+		def game_over
+			@game_over = true
+			@oh_noes.show!
+			during(2000) {@oh_noes.y += 1 unless @oh_noes.y >= 50}
+			after(2000) {pop_game_state}
+		end
+		def game_over?
+			@game_over
+		end
+	end
+	class ChatBubble < Chingu::GameObject
+		def setup
+			@image = Gosu::Image['chat_bubble.png']
+		end
+		def prepare(options = {})
+			@text_offset = {:x => 22, :y => 24}
+			@chat_offset = {:x => 0, :y => 24}
+			@x, @y = 0, 0 # (options.delete(:x) || 0) - @chat_offset[:x], (options.delete(:y) || 0) - @chat_offset[:y]
+			@text = Chingu::Text.create(
+				options.delete(:text) || '',
+				:x => @x - @text_offset[:x],
+				:y => @y - @text_offset[:y],
+				:align => (options.delete(:align) || :center).to_sym,
+				:color => options.delete(:color) || Gosu::Color::BLACK)
+			hide! if options.delete(:hide) == true
+			self
+		end
+		def hide!
+			@text.hide!
+			super
+		end
+		def show!
+			super
+			@text.show!
+		end
+		def text
+			@text.text
+		end
+		def text=(text = '')
+			@text.text = text
+		end
+		def move(x = 0, y = 0)
+			@x, @y = x - @chat_offset[:x], y - @chat_offset[:y]
+			(@text.x, @text.y = (@x - @text_offset[:x]), (@y - @text_offset[:y])) unless @text.nil?
+		end
+	end
+	class Player < Chingu::GameObject
+		attr_reader :shape, :body
+		traits :timer, :velocity, :collision_detection, :bounding_box, :animation
+		def prepare(options = {})
+			@acceleration_speed = options.delete(:acceleration_speed).to_i || 1 # horizontal acceleration speed increment
+			@gravity = options.delete(:gravity).to_i || 0.8
+			@acceleration_y =  @gravity
+			@jump_height = options.delete(:jump_height).to_i || 5
+			@last_x, @last_y = 0, 0
+			@chat = ChatBubble.create
+			@animation = Chingu::Animation.new(:file => (options.delete(:anim_file) || 'fallback_16x16.png'))
+			@animation.frame_names = {:pose => 0..0, :run => 0..3, :duck => 4..4, :jump => 4..6}
+			@current_frame = :pose
+			@image = @animation.first
+			cache_bounding_box
+			self.input = {
+				"holding_#{options.delete(:left_key) || 'left'}".to_sym => lambda do
+					@acceleration_x -= @acceleration_speed  if @acceleration_x.abs < @acceleration_speed * 2
+					@factor_x = -1
+					@current_frame = :run
+				end,
+				"holding_#{options.delete(:right_key) || 'right'}".to_sym => lambda do
+					@acceleration_x += @acceleration_speed if @acceleration_x.abs < @acceleration_speed * 2
+					@factor_x = 1
+					@current_frame = :run
+				end,
+				"holding_#{options.delete(:jump_key) || 'up'}".to_sym => :jump,
+				"holding_#{options.delete(:duck_key) || 'down'}".to_sym => :duck,
+				"pressed_#{options.delete(:ability_key) || 'space'}".to_sym => :ability}
+		end
+		def update
+			# deal with horizontal acceleration
+			@acceleration_x *= 0.5
+			@velocity_x *= (touching_ground? ? 0.3 : 0.5)
+			@velocity_x = 0 if @velocity_x.abs < 0.01
+			# we must reset gravity each frame, otherwise players can walk right over holes in the ground.
+			@acceleration_y = @gravity
+			# deal with collisions!
+			# TODO: Actually collide and move around? In the interest of getting this thing "done" we
+			# can only collide with things below us.
+			self.each_bounding_box_collision(Block) do |player, block|
+				return if @velocity_y < 0
+				return if @x == @last_x and @y == @last_y
+				return if parent.game_over?
+				@velocity_y = 0
+				@acceleration_y = 0
+				@y -= bounding_box.bottom - block.bounding_box.top
+			end
+			self.each_bounding_box_collision(Player) do |player, other_player|
+			end
+			# update the animation, and reset the current_frame (in case we stop doing things)
+			@image = @animation[@current_frame].next
+			@current_frame = :pose
+			# update the ChatBubble's position
+			@chat.move(@x, @y)
+			# and at the end of the day, save our current position
+			@last_x, @last_y = @x, @y
+		end
+		def jump
+			@velocity_y -= @jump_height if touching_ground?
+			@acceleration_y = @gravity
+			@current_frame = :jump
+		end
+		def duck
+			@current_frame = :duck
+		end
+		def touching_ground?; @acceleration_y == 0; end
+	end
+	class Fat < Player
+		attr_reader :hunger
+		def setup
+			@hunger = 0
+			prepare(:left_key => 'a', :right_key => 'd', :jump_key => 'w', :duck_key => 's', :ability_key => 'space', :acceleration_speed => 1, :jump_height => 5, :gravity => 2, :anim_file => 'fat_27x37.png')
+			every(3000) do
+				@hunger += 1
+				@chat.show! if @hunger > 5
+				after(1000) {@chat.hide!}
+			end
+			@chat.prepare(:text => 'Howdy!')
+			after(1000) do
+				@chat.hide!
+				@chat.prepare(:text => 'Hungry!', :hide => true)
+			end
+			@input.merge!(:space => :ability)
+			@food = nil
+		end
+		def ability
+			collision = false
+			each_bounding_box_collision(Food) do |player, food|
+				unless food.being_carried?
+					collision = true
+					@food = food
+				end
+			end
+			if collision == false and not @food.nil?
+				@hunger -= 1
+				@food.destroy
+				parent.score += 100
+				@food = nil
+			end
+		end
+		def update
+			@food.move(@x, @y) unless @food.nil?
+			super
+		end
+	end
+	class Skinny < Player
+		attr_reader :health
+		def setup
+			@health = 10
+			prepare(:acceleration_speed => 2, :jump_height => 10, :gravity => 2, :anim_file => 'skinny_14x37.png', :ability_key => 'return')
+			@chat.prepare(:text => 'Hello.')
+			after(900) do
+				@chat.hide!
+				@chat.prepare(:text => 'Ouch!', :hide => true)
+			end
+			@food = nil
+			@input.merge!(:return => :ability)
+		end
+		def hit
+			@chat.show!
+			after(2000) {@chat.hide!}
+			@health -= 1
+		end
+		def ability
+			collision = false
+			each_bounding_box_collision(Food) do |player, food|
+				unless food.being_carried?
+					collision = true
+					@food = food
+				end
+			end
+			if collision == false and not @food.nil?
+				@food.throw(@factor_x)
+				@food = nil
+			end
+		end
+		def update
+			@food.move(@x, @y) unless @food.nil?
+			super
+		end
+	end
+	class Block < Chingu::GameObject
+		trait :bounding_box
+		def setup
+			@image = Gosu::Image['block.png']
+			# a block's original position is it's position in the map array. Update
+			# it's position to reflect it's real-world position.
+			@x = (@x * @image.width) - (@image.width / 2)
+			@y = (@y * @image.height) - (@image.height / 2)
+			cache_bounding_box
+			hide!
+		end
+	end
+	class Food < Chingu::GameObject
+		traits :bounding_box, :collision_detection, :velocity
+		def setup
+			@being_carried = false
+			@image = Gosu::Image['cheese_16x16.png']
+			@acceleration_y = 2
+		end
+		def throw(direction = 1)
+			@being_carried = false
+			@velocity_x = 25 * direction
+			@acceleration_y = 2
+		end
+		def move(x = 0, y = 0)
+			@x, @y = x, y - 40
+		end
+		def carry
+			@being_carried = true
+			@acceleration_y = 0
+			@velocity_y = 0
+		end
+		def being_carried?
+			@being_carried
+		end
+		def update
+			unless being_carried?
+				# Copy-Pasta'd from Player
+				# deal with horizontal acceleration
+				# @acceleration_x *= 0.5
+				@velocity_x *= (touching_ground? ? 0.3 : 0.5)
+				@velocity_x = 0 if @velocity_x.abs < 0.01
+				# we must reset gravity each frame, otherwise players can walk right over holes in the ground.
+				# @acceleration_y = 1
+				# deal with collisions!
+				# TODO: Actually collide and move around? In the interest of getting this thing "done" we
+				# can only collide with things below us.
+				self.each_bounding_box_collision(Block) do |player, block|
+					return if @velocity_y < 0
+					return if @x == @last_x and @y == @last_y
+					return if parent.game_over?
+					@velocity_y = 0
+					@acceleration_y = 0
+					@y -= bounding_box.bottom - block.bounding_box.top
+				end
+				# update the animation, and reset the current_frame (in case we stop doing things)
+				# @image = @animation[@current_frame].next
+				# @current_frame = :pose
+				# update the ChatBubble's position
+				# @chat.move(@x, @y)
+				# and at the end of the day, save our current position
+				@last_x, @last_y = @x, @y
+			end
+		end
+		def touching_ground?; @acceleration_y == 0; end
+	end
+	class Bomb < Chingu::GameObject	
+		traits :bounding_box, :collision_detection, :velocity, :timer
+		def setup
+			@image = Gosu::Image['bomb_16x16.png']
+			@acceleration_y = 2
+			after(5000) {blow_up}
+		end
+		def being_carried?() false; end
+		def blow_up
+			Explosion.create(:x => @x, :y => @y)
+			after(200) {self.destroy}
+		end
+		def update
+			unless being_carried?
+				# Copy-Pasta'd from Player
+				# deal with horizontal acceleration
+				# @acceleration_x *= 0.5
+				@velocity_x *= (touching_ground? ? 0.3 : 0.5)
+				@velocity_x = 0 if @velocity_x.abs < 0.01
+				# we must reset gravity each frame, otherwise players can walk right over holes in the ground.
+				# @acceleration_y = 1
+				# deal with collisions!
+				# TODO: Actually collide and move around? In the interest of getting this thing "done" we
+				# can only collide with things below us.
+				self.each_bounding_box_collision(Block) do |player, block|
+					return if @velocity_y < 0
+					return if @x == @last_x and @y == @last_y
+					return if parent.game_over?
+					@velocity_y = 0
+					@acceleration_y = 0
+					@y -= bounding_box.bottom - block.bounding_box.top
+				end
+				# update the animation, and reset the current_frame (in case we stop doing things)
+				# @image = @animation[@current_frame].next
+				# @current_frame = :pose
+				# update the ChatBubble's position
+				# @chat.move(@x, @y)
+				# and at the end of the day, save our current position
+				@last_x, @last_y = @x, @y
+			end
+		end
+		def touching_ground?; @acceleration_y == 0; end
+	end
+	class Explosion < Chingu::GameObject
+		traits :bounding_box, :collision_detection, :timer
+		def setup
+			@image = Gosu::Image['explosion.png']
+			self.each_bounding_box_collision(Skinny) do |explosion, skinny|
+				puts "skinny got hit"
+				skinny.hit
+			end
+			# during(200) {@image.alpha -= 10}
+			after(200) {self.destroy}
+		end
+	end
+end
+RedditGameJam02::Game.new(320, 240, true).show

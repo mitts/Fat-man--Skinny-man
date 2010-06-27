@@ -1,0 +1,27 @@
+One day fat man and skinny man were walking along, when they noticed that a 
+plane carrying a shipment of bombs for the army and a plane carrying cheese 
+collided mid air. Bombs and cheese began raining down upon them. Make sure 
+Skinny man doesn't get hurt by the bombs, and also don't forget to feed Fat man
+
+All artwork and code by me, Kenneth Pullen. This was made for the Reddit Game
+Jam held from 2010-6-25 @ 1400 UTC to 2010-6-27 @ 1400 UTC.
+
+t(-_-t)
+
+fat man controls:
+w - jump
+a - left
+s - duck
+d - right
+space - perform ability (pick up, then eat cheese)
+
+skinny man controls:
+up arrow - jump
+left arrow - left
+down arrow - duck
+right arrow - right
+return - perform ability (pick up, then throw cheese)
+
+Quick reminder: Fat man is immune to the bombs, but he's also
+a lot slower than Skinny man.
+
